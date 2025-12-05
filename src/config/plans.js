@@ -28,7 +28,10 @@ export const PLAN_DEFINITIONS = {
 export const getPlanDefinition = (tier = "free") =>
   PLAN_DEFINITIONS[tier] || PLAN_DEFINITIONS.free;
 
-export const canCreateDashboard = (tier, existingCount) => {
+export const canCreateDashboard = (tier, existingCount, options = {}) => {
+  if (options.isAdmin) {
+    return true;
+  }
   const plan = getPlanDefinition(tier);
   if (!plan.dashboardLimit) return true;
   return existingCount < plan.dashboardLimit;

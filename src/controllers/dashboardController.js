@@ -28,14 +28,22 @@ export const listDashboards = async (req, res, next) => {
 export const createDashboard = async (req, res, next) => {
   try {
     const payload = await validateDashboardCreate(req.body);
-    const dashboardCount = await pool.query(
-      "SELECT COUNT(*)::int AS count FROM dashboards WHERE user_id = $1",
+    const dashboardStats = await pool.query(
+      `SELECT COUNT(*)::int AS count,
+              COALESCE(bool_or(is_primary), FALSE) AS has_primary
+         FROM dashboards WHERE user_id = $1`,
       [req.user.id]
     );
-    if (!canCreateDashboard(req.user.plan, dashboardCount.rows[0].count)) {
+
+    const { count, has_primary } = dashboardStats.rows[0];
+    if (
+      !canCreateDashboard(req.user.plan, count, { isAdmin: req.user.isAdmin })
+    ) {
       res.status(403);
       throw new Error("Plan limit reached. Upgrade to add more dashboards.");
     }
+
+    const shouldBePrimary = !has_primary;
 
     const desiredSlug = toSlug(payload.slug, payload.title);
 
@@ -50,15 +58,16 @@ export const createDashboard = async (req, res, next) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO dashboards (user_id, title, slug, visibility, layout)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, title, slug, visibility, layout, created_at`,
+      `INSERT INTO dashboards (user_id, title, slug, visibility, layout, is_primary)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, title, slug, visibility, layout, is_primary, created_at`,
       [
         req.user.id,
         payload.title,
         desiredSlug,
         payload.visibility,
         payload.layout,
+        shouldBePrimary,
       ]
     );
 
@@ -137,23 +146,47 @@ export const updateDashboard = async (req, res, next) => {
 };
 
 export const deleteDashboard = async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const dashboard = await getDashboardById(req.params.id, req.user.id);
-    if (!dashboard) {
+    await client.query("BEGIN");
+
+    const dashboardResult = await client.query(
+      `SELECT id, is_primary FROM dashboards
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE`,
+      [req.params.id, req.user.id]
+    );
+
+    if (!dashboardResult.rowCount) {
       res.status(404);
       throw new Error("Dashboard not found.");
     }
 
-    if (dashboard.is_primary) {
-      res.status(400);
-      throw new Error(
-        "Primary dashboard cannot be deleted. Update it instead."
+    await client.query("DELETE FROM dashboards WHERE id = $1", [req.params.id]);
+
+    if (dashboardResult.rows[0].is_primary) {
+      const replacement = await client.query(
+        `SELECT id FROM dashboards
+           WHERE user_id = $1
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC
+           LIMIT 1`,
+        [req.user.id]
       );
+
+      if (replacement.rowCount) {
+        await client.query(
+          "UPDATE dashboards SET is_primary = TRUE WHERE id = $1",
+          [replacement.rows[0].id]
+        );
+      }
     }
 
-    await pool.query("DELETE FROM dashboards WHERE id = $1", [req.params.id]);
+    await client.query("COMMIT");
     return res.status(204).send();
   } catch (error) {
+    await client.query("ROLLBACK");
     return next(error);
+  } finally {
+    client.release();
   }
 };

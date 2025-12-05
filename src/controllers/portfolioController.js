@@ -9,7 +9,12 @@ import {
 import {
   fetchPortfolioData,
   savePortfolioData,
+  evaluatePortfolioReadiness,
+  publishPrimaryDashboard,
+  buildPortfolioLinks,
 } from "../services/portfolioService.js";
+import { PORTFOLIO_REQUIREMENTS } from "../config/portfolio.js";
+import { listActiveTemplates } from "../services/templateService.js";
 
 const fetchResumeRecord = async (userId, resumeId) => {
   if (resumeId) {
@@ -77,8 +82,38 @@ const buildEnhancePrompt = (text, tone, persona) =>
 
 export const getPortfolioBlueprint = async (req, res, next) => {
   try {
-    const portfolio = await fetchPortfolioData(req.user.id);
-    return res.json({ portfolio });
+    const [portfolio, templates] = await Promise.all([
+      fetchPortfolioData(req.user.id),
+      listActiveTemplates(),
+    ]);
+    const readiness = evaluatePortfolioReadiness(portfolio);
+    const links = buildPortfolioLinks(req.user.handle, portfolio.dashboards);
+    return res.json({
+      portfolio,
+      readiness,
+      links,
+      requirements: PORTFOLIO_REQUIREMENTS,
+      templates,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getPortfolioStatus = async (req, res, next) => {
+  try {
+    const [portfolio, templates] = await Promise.all([
+      fetchPortfolioData(req.user.id),
+      listActiveTemplates(),
+    ]);
+    const readiness = evaluatePortfolioReadiness(portfolio);
+    const links = buildPortfolioLinks(req.user.handle, portfolio.dashboards);
+    return res.json({
+      readiness,
+      links,
+      requirements: PORTFOLIO_REQUIREMENTS,
+      templates,
+    });
   } catch (error) {
     return next(error);
   }
@@ -124,12 +159,62 @@ export const generatePortfolioDraft = async (req, res, next) => {
 export const savePortfolio = async (req, res, next) => {
   try {
     const payload = await validatePortfolioSave(req.body);
-    const portfolio = await savePortfolioData(req.user, payload);
-    return res.json({ portfolio });
+    let portfolio = await savePortfolioData(req.user, payload);
+    let readiness = evaluatePortfolioReadiness(portfolio);
+    let links = buildPortfolioLinks(req.user.handle, portfolio.dashboards);
+
+    if (payload.publish) {
+      if (!readiness.ready) {
+        res.status(422);
+        return res.json({
+          portfolio,
+          readiness,
+          links,
+          message: "Fill the required sections before publishing.",
+        });
+      }
+
+      await publishPrimaryDashboard(req.user.id);
+      portfolio = await fetchPortfolioData(req.user.id);
+      readiness = evaluatePortfolioReadiness(portfolio);
+      links = buildPortfolioLinks(req.user.handle, portfolio.dashboards);
+    }
+
+    return res.json({ portfolio, readiness, links });
   } catch (error) {
     if (error.statusCode) {
       res.status(error.statusCode);
     }
+    return next(error);
+  }
+};
+
+export const publishPortfolio = async (req, res, next) => {
+  try {
+    const portfolio = await fetchPortfolioData(req.user.id);
+    const readiness = evaluatePortfolioReadiness(portfolio);
+
+    if (!readiness.ready) {
+      res.status(422);
+      return res.json({
+        readiness,
+        requirements: PORTFOLIO_REQUIREMENTS,
+        message: "Portfolio is missing required sections.",
+      });
+    }
+
+    await publishPrimaryDashboard(req.user.id);
+    const refreshed = await fetchPortfolioData(req.user.id);
+    const links = buildPortfolioLinks(req.user.handle, refreshed.dashboards);
+    const updatedReadiness = evaluatePortfolioReadiness(refreshed);
+
+    return res.json({
+      portfolio: refreshed,
+      readiness: updatedReadiness,
+      links,
+      published: true,
+    });
+  } catch (error) {
     return next(error);
   }
 };
@@ -151,6 +236,15 @@ export const enhancePortfolioText = async (req, res, next) => {
     };
     const enhanced = safeParse(result.response.text()) || fallback;
     return res.json({ enhanced });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getPortfolioTemplates = async (_req, res, next) => {
+  try {
+    const templates = await listActiveTemplates();
+    return res.json({ templates });
   } catch (error) {
     return next(error);
   }

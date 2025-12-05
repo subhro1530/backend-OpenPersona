@@ -6,12 +6,21 @@ const email = Joi.string().email({ tlds: { allow: false } });
 const password = Joi.string().min(8).max(128);
 const handle = Joi.string().pattern(/^[a-z0-9_]{3,30}$/);
 const slug = Joi.string().pattern(/^[a-z0-9-]{3,64}$/);
+const templateSlug = Joi.string().pattern(/^[a-z0-9-]{3,64}$/);
 
 const registerSchema = Joi.object({
   name: Joi.string().min(2).max(80).required(),
   email: email.required(),
   password: password.required(),
   handle: handle.required(),
+});
+
+const adminRegisterSchema = registerSchema.keys({
+  adminCode: Joi.string().min(6).max(120).required(),
+});
+
+const adminUpgradeSchema = Joi.object({
+  adminCode: Joi.string().min(6).max(120).required(),
 });
 
 const loginSchema = Joi.object({
@@ -25,7 +34,7 @@ const profileSchema = Joi.object({
   location: Joi.string().max(120).allow("", null),
   avatarUrl: Joi.string().uri().allow("", null),
   bannerUrl: Joi.string().uri().allow("", null),
-  template: Joi.string().max(64).allow("", null),
+  template: templateSlug.lowercase().default("hire-me").allow(null),
   socialLinks: Joi.array()
     .items(
       Joi.object({
@@ -39,8 +48,72 @@ const profileSchema = Joi.object({
 const handleUpdateSchema = Joi.object({ handle: handle.required() });
 
 const templateUpdateSchema = Joi.object({
-  template: slug.required(),
+  template: templateSlug.lowercase().required(),
 });
+
+const themeConfigSchema = Joi.object({
+  fonts: Joi.object({
+    heading: Joi.string().max(80).allow("", null),
+    body: Joi.string().max(80).allow("", null),
+    mono: Joi.string().max(80).allow("", null),
+  }).default({}),
+  colors: Joi.object()
+    .pattern(/^[a-zA-Z0-9_-]+$/, Joi.string().max(32))
+    .default({}),
+  spacing: Joi.object()
+    .pattern(/^[a-zA-Z0-9_-]+$/, Joi.string().max(16))
+    .default({}),
+  radii: Joi.object()
+    .pattern(/^[a-zA-Z0-9_-]+$/, Joi.string().max(16))
+    .default({}),
+  shadows: Joi.object()
+    .pattern(/^[a-zA-Z0-9_-]+$/, Joi.string().max(64))
+    .default({}),
+  typography: Joi.object()
+    .pattern(
+      /^[a-zA-Z0-9_-]+$/,
+      Joi.object({
+        size: Joi.string().max(16).allow("", null),
+        lineHeight: Joi.string().max(16).allow("", null),
+        weight: Joi.number().integer().min(100).max(900).allow(null),
+      })
+    )
+    .default({}),
+  tokens: Joi.object().unknown(true).default({}),
+}).default({});
+
+const componentSnippetSchema = Joi.object({
+  language: Joi.string()
+    .valid("css", "scss", "js", "jsx", "ts", "tsx", "html", "mdx")
+    .default("css"),
+  code: Joi.string().min(10).max(8000).required(),
+  description: Joi.string().max(240).allow("", null),
+  preview: Joi.string().uri().allow(null),
+  props: Joi.object().unknown(true).default({}),
+});
+
+const componentSnippetsSchema = Joi.object()
+  .pattern(/^[a-zA-Z0-9_-]+$/, componentSnippetSchema)
+  .default({});
+
+const templateCatalogCreateSchema = Joi.object({
+  slug: templateSlug.required(),
+  name: Joi.string().max(120).required(),
+  description: Joi.string().max(400).allow("", null),
+  previewUrl: Joi.string().uri().required(),
+  isActive: Joi.boolean().default(true),
+  themeConfig: themeConfigSchema,
+  componentSnippets: componentSnippetsSchema,
+});
+
+const templateCatalogUpdateSchema = Joi.object({
+  name: Joi.string().max(120),
+  description: Joi.string().max(400).allow("", null),
+  previewUrl: Joi.string().uri(),
+  isActive: Joi.boolean(),
+  themeConfig: themeConfigSchema,
+  componentSnippets: componentSnippetsSchema,
+}).min(1);
 
 const dashboardCreateSchema = Joi.object({
   title: Joi.string().min(3).max(140).required(),
@@ -175,6 +248,10 @@ const enhanceTextSchema = Joi.object({
 
 export const validateRegister = (payload) =>
   registerSchema.validateAsync(payload, baseOptions);
+export const validateAdminRegister = (payload) =>
+  adminRegisterSchema.validateAsync(payload, baseOptions);
+export const validateAdminUpgrade = (payload) =>
+  adminUpgradeSchema.validateAsync(payload, baseOptions);
 export const validateLogin = (payload) =>
   loginSchema.validateAsync(payload, baseOptions);
 export const validateProfile = (payload) =>
@@ -205,6 +282,10 @@ export const validatePortfolioSave = (payload) =>
   portfolioSaveSchema.validateAsync(payload, baseOptions);
 export const validateEnhanceText = (payload) =>
   enhanceTextSchema.validateAsync(payload, baseOptions);
+export const validateTemplateCatalogCreate = (payload) =>
+  templateCatalogCreateSchema.validateAsync(payload, baseOptions);
+export const validateTemplateCatalogUpdate = (payload) =>
+  templateCatalogUpdateSchema.validateAsync(payload, baseOptions);
 
 export const validateSlug = async (value) =>
   slug.validateAsync(value, baseOptions);

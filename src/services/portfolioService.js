@@ -2,6 +2,11 @@ import slugify from "slugify";
 import pool from "../config/db.js";
 import { generateSignedUrl } from "../utils/s3Helpers.js";
 import { canCreateDashboard } from "../config/plans.js";
+import {
+  PORTFOLIO_REQUIREMENTS,
+  getPortfolioBaseUrl,
+} from "../config/portfolio.js";
+import { ensureTemplateExists } from "./templateService.js";
 
 const mediaCategories = ["avatar", "banner", "project", "portfolio"];
 
@@ -106,6 +111,12 @@ const replaceCollection = async (client, key, userId, items = []) => {
 const updateProfile = async (client, userId, profilePayload = {}, summary) => {
   if (!profilePayload && !summary) {
     return;
+  }
+
+  if (profilePayload?.template) {
+    const normalizedTemplate = profilePayload.template.toLowerCase();
+    await ensureTemplateExists(normalizedTemplate);
+    profilePayload.template = normalizedTemplate;
   }
 
   const result = await client.query(
@@ -228,7 +239,11 @@ const handleDashboardMutation = async (client, user, dashboardPayload = {}) => {
     "SELECT COUNT(*)::int AS count FROM dashboards WHERE user_id = $1",
     [user.id]
   );
-  if (!canCreateDashboard(user.plan, countResult.rows[0].count)) {
+  if (
+    !canCreateDashboard(user.plan, countResult.rows[0].count, {
+      isAdmin: user.isAdmin,
+    })
+  ) {
     throw httpError(
       403,
       "Plan limit reached. Upgrade to add another portfolio."
@@ -291,14 +306,6 @@ export const savePortfolioData = async (user, payload) => {
     );
 
     await handleDashboardMutation(client, user, payload.dashboard);
-
-    if (payload.publish) {
-      await client.query(
-        `UPDATE dashboards SET visibility = 'public', updated_at = NOW()
-         WHERE user_id = $1 AND is_primary = TRUE`,
-        [user.id]
-      );
-    }
 
     await client.query("COMMIT");
     return fetchPortfolioData(user.id);
@@ -411,5 +418,93 @@ export const fetchPortfolioData = async (userId) => {
     media,
     draft: latestDraft,
     dashboards: dashboards.rows,
+  };
+};
+
+const getValueByPath = (source, path) => {
+  if (!source || !path) return undefined;
+  return path.split(".").reduce((acc, segment) => {
+    if (acc === null || acc === undefined) {
+      return undefined;
+    }
+    return acc[segment];
+  }, source);
+};
+
+export const evaluatePortfolioReadiness = (portfolio = {}) => {
+  const missing = [];
+  for (const requirement of PORTFOLIO_REQUIREMENTS) {
+    const value = getValueByPath(portfolio, requirement.key);
+    if (Array.isArray(value)) {
+      const min = requirement.minItems ?? 1;
+      if (!value.length || value.length < min) {
+        missing.push({
+          key: requirement.key,
+          label: requirement.label,
+          description: requirement.description,
+        });
+      }
+      continue;
+    }
+
+    if (typeof value === "string") {
+      if (!value.trim()) {
+        missing.push({
+          key: requirement.key,
+          label: requirement.label,
+          description: requirement.description,
+        });
+      }
+      continue;
+    }
+
+    if (value === null || value === undefined) {
+      missing.push({
+        key: requirement.key,
+        label: requirement.label,
+        description: requirement.description,
+      });
+    }
+  }
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    requirements: PORTFOLIO_REQUIREMENTS,
+  };
+};
+
+export const publishPrimaryDashboard = async (userId) => {
+  const result = await pool.query(
+    `UPDATE dashboards
+        SET visibility = 'public', updated_at = NOW()
+      WHERE user_id = $1 AND is_primary = TRUE
+      RETURNING id, slug, visibility, is_primary`,
+    [userId]
+  );
+
+  if (!result.rowCount) {
+    throw httpError(404, "Primary dashboard not found.");
+  }
+
+  return result.rows[0];
+};
+
+export const buildPortfolioLinks = (handle, dashboards = []) => {
+  const origin = getPortfolioBaseUrl().replace(/\/$/, "");
+  const makeUrl = (slug) => `${origin}/dashboards/${handle}/${slug}`;
+  const mapped = dashboards.map((dashboard) => ({
+    id: dashboard.id,
+    slug: dashboard.slug,
+    visibility: dashboard.visibility,
+    isPrimary: dashboard.is_primary,
+    url: makeUrl(dashboard.slug),
+  }));
+  const primary = mapped.find((dash) => dash.isPrimary) || mapped[0] || null;
+
+  return {
+    origin,
+    primary: primary ? primary.url : null,
+    dashboards: mapped,
   };
 };

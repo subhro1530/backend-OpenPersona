@@ -24,6 +24,62 @@ JSON payload:
 ${JSON.stringify(data, null, 2)}
 `;
 
+const buildHighlightsFallback = (payload) => {
+  const profileName =
+    payload.profile?.name || payload.profile?.headline || "Identity";
+  const skillCount = payload.signals.skills.length;
+  const projectCount = payload.signals.projects.length;
+  return {
+    moments: [
+      {
+        title: `${profileName} is live`,
+        summary: `${projectCount} showcase projects and ${skillCount} core skills are ready for briefings.`,
+        action: "Share the latest dashboard with hiring teams.",
+      },
+    ],
+    momentum: [
+      {
+        label: "Skills",
+        status: skillCount >= 3 ? "On track" : "Add more",
+        insight: `You currently list ${skillCount} skills. Add depth with proficiency notes.`,
+      },
+      {
+        label: "Projects",
+        status: projectCount ? "Story-ready" : "Needs case studies",
+        insight: projectCount
+          ? `${projectCount} projects available for case-study mode.`
+          : "Add at least one project to unlock highlights.",
+      },
+    ],
+    talkingPoints: [
+      payload.profile?.headline || "Lead with your core value statement.",
+      projectCount
+        ? `Walk through ${
+            payload.signals.projects[0]?.title || "your top project"
+          }.`
+        : "Add a flagship project story to unlock richer highlights.",
+      "Close with a clear CTA (book a call, view dashboard, download resume).",
+    ].filter(Boolean),
+  };
+};
+
+const runGeminiHighlights = async (payload) => {
+  const fallback = buildHighlightsFallback(payload);
+  try {
+    const model = getGeminiModel();
+    const prompt = buildPrompt(
+      "Create personal highlights, momentum indicators, and suggested talking points.",
+      payload
+    );
+    const result = await model.generateContent(prompt);
+    const highlights = safeParse(result.response.text(), fallback);
+    return { highlights, offline: false };
+  } catch (error) {
+    console.error("[SupportAI] highlights failed", error.message);
+    return { highlights: fallback, offline: true };
+  }
+};
+
 export const getIdentityHighlights = async (req, res, next) => {
   try {
     const identity = await getIdentityBundle(req.user.id);
@@ -38,19 +94,8 @@ export const getIdentityHighlights = async (req, res, next) => {
       },
     };
 
-    const model = getGeminiModel();
-    const prompt = buildPrompt(
-      "Create personal highlights, momentum indicators, and suggested talking points.",
-      payload
-    );
-    const result = await model.generateContent(prompt);
-    const fallback = {
-      moments: [],
-      momentum: [],
-      talkingPoints: [],
-    };
-    const highlights = safeParse(result.response.text(), fallback);
-    return res.json({ highlights });
+    const result = await runGeminiHighlights(payload);
+    return res.json({ highlights: result.highlights, offline: result.offline });
   } catch (error) {
     return next(error);
   }

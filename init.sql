@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS plan_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS plans (
   tier TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -48,16 +57,47 @@ CREATE TABLE IF NOT EXISTS templates (
   name TEXT NOT NULL,
   description TEXT,
   preview_url TEXT,
+  theme_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  component_snippets JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO templates (slug, name, description, preview_url)
+INSERT INTO templates (slug, name, description, preview_url, theme_config, component_snippets)
 VALUES
-  ('hire-me', 'Hire Me Spotlight', 'CTA-first profile for job seekers', 'https://cdn.openpersona.dev/templates/hire-me.png'),
-  ('portfolio', 'Creative Portfolio', 'Visual-first template for designers', 'https://cdn.openpersona.dev/templates/portfolio.png'),
-  ('case-study', 'Case Study Deck', 'Storytelling layout for consultants', 'https://cdn.openpersona.dev/templates/case-study.png'),
-  ('agency', 'Agency Grid', 'Team-friendly showcase for agencies', 'https://cdn.openpersona.dev/templates/agency.png')
+  (
+    'hire-me',
+    'Hire Me Spotlight',
+    'CTA-first profile for job seekers',
+    'https://cdn.openpersona.dev/templates/hire-me.png',
+    '{"fonts":{"heading":"Space Grotesk","body":"Inter","mono":"JetBrains Mono"},"colors":{"primary":"#0F172A","accent":"#06B6D4","background":"#F8FAFC"},"spacing":{"section":"96px","block":"48px"}}'::jsonb,
+    '{"hero":{"language":"tsx","code":"<HeroSpotlight headline=\"Make offers happen\" />"},"cta":{"language":"css","code":".cta-button{background:#0F172A;color:#F8FAFC;border-radius:999px;padding:16px 32px;}"}}'::jsonb
+  ),
+  (
+    'portfolio',
+    'Creative Portfolio',
+    'Visual-first template for designers',
+    'https://cdn.openpersona.dev/templates/portfolio.png',
+    '{"fonts":{"heading":"Clash Display","body":"Suisse"},"colors":{"primary":"#111827","accent":"#F97316","muted":"#9CA3AF"},"radii":{"card":"32px"}}'::jsonb,
+    '{"gallery":{"language":"css","code":".gallery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:32px;}"}}'::jsonb
+  ),
+  (
+    'case-study',
+    'Case Study Deck',
+    'Storytelling layout for consultants',
+    'https://cdn.openpersona.dev/templates/case-study.png',
+    '{"fonts":{"heading":"Aeonik","body":"IBM Plex Sans"},"colors":{"primary":"#0B132B","accent":"#3A86FF"},"shadows":{"card":"0 20px 80px rgba(15,23,42,0.2)"}}'::jsonb,
+    '{"timeline":{"language":"tsx","code":"<TimelineCaseStudy steps={steps} />"}}'::jsonb
+  ),
+  (
+    'agency',
+    'Agency Grid',
+    'Team-friendly showcase for agencies',
+    'https://cdn.openpersona.dev/templates/agency.png',
+    '{"fonts":{"heading":"Whyte Inktrap","body":"General Sans"},"colors":{"primary":"#020617","accent":"#EC4899","support":"#22D3EE"}}'::jsonb,
+    '{"carousel":{"language":"js","code":"export const TestimonialsCarousel = () => {/* agency block */}"}}'::jsonb
+  )
 ON CONFLICT (slug) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS dashboards (
@@ -72,6 +112,16 @@ CREATE TABLE IF NOT EXISTS dashboards (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, slug)
 );
+
+ALTER TABLE dashboards
+  ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE templates
+  ADD COLUMN IF NOT EXISTS theme_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE templates
+  ADD COLUMN IF NOT EXISTS component_snippets JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE templates
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS dashboard_sections (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

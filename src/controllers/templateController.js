@@ -1,15 +1,51 @@
-import pool from "../config/db.js";
+import {
+  listActiveTemplates,
+  listAllTemplates,
+  createTemplateRecord,
+  updateTemplateRecord,
+} from "../services/templateService.js";
+import {
+  validateTemplateCatalogCreate,
+  validateTemplateCatalogUpdate,
+} from "../utils/validators.js";
 
-export const listTemplates = async (req, res, next) => {
+export const listTemplates = async (_req, res, next) => {
   try {
-    const result = await pool.query(
-      `SELECT slug, name, description, preview_url, is_active
-       FROM templates
-       WHERE is_active = TRUE
-       ORDER BY name`
-    );
+    const templates = await listActiveTemplates();
+    return res.json({ templates });
+  } catch (error) {
+    return next(error);
+  }
+};
 
-    return res.json({ templates: result.rows });
+export const listTemplatesAdmin = async (_req, res, next) => {
+  try {
+    const templates = await listAllTemplates();
+    return res.json({ templates });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const createTemplate = async (req, res, next) => {
+  try {
+    const payload = await validateTemplateCatalogCreate(req.body);
+    const template = await createTemplateRecord(payload);
+    return res.status(201).json({ template });
+  } catch (error) {
+    if (error.code === "23505") {
+      res.status(409);
+      return next(new Error("Template slug already exists."));
+    }
+    return next(error);
+  }
+};
+
+export const updateTemplate = async (req, res, next) => {
+  try {
+    const payload = await validateTemplateCatalogUpdate(req.body);
+    const template = await updateTemplateRecord(req.params.slug, payload);
+    return res.json({ template });
   } catch (error) {
     return next(error);
   }

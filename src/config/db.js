@@ -44,6 +44,17 @@ const REQUIRED_TABLES = [
   "admin_actions",
 ];
 
+const COLUMN_PATCHES = [
+  "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'",
+  "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+  "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE",
+  "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE",
+  "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE",
+  "ALTER TABLE templates ADD COLUMN IF NOT EXISTS theme_config JSONB NOT NULL DEFAULT '{}'::jsonb",
+  "ALTER TABLE templates ADD COLUMN IF NOT EXISTS component_snippets JSONB NOT NULL DEFAULT '{}'::jsonb",
+  "ALTER TABLE templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+];
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..", "..");
@@ -95,9 +106,24 @@ const runInitSql = async () => {
   }
 };
 
+const applyColumnPatches = async () => {
+  for (const statement of COLUMN_PATCHES) {
+    try {
+      await pool.query(statement);
+    } catch (error) {
+      console.error(
+        `[DB] Failed to apply schema patch: ${statement}`,
+        error.message
+      );
+      throw error;
+    }
+  }
+};
+
 export const ensureDatabaseSchema = async () => {
   const { missing } = await checkRequiredTables();
   if (!missing.length) {
+    await applyColumnPatches();
     return;
   }
 
@@ -112,6 +138,7 @@ export const ensureDatabaseSchema = async () => {
     );
   }
   console.log("[DB] Schema initialization complete.");
+  await applyColumnPatches();
 };
 
 export default pool;

@@ -16,14 +16,71 @@ const runAgent = async (task, data) => {
   return result.response.text();
 };
 
+const toJsonString = (value) =>
+  typeof value === "string" ? value : JSON.stringify(value, null, 2);
+
+const fallbackProfileInsights = (identity) => {
+  const headline = identity.profile?.headline || "Identity in progress";
+  const summary =
+    identity.profile?.bio ||
+    "Add a bio to help the agent generate richer insights.";
+  return {
+    summary,
+    headline,
+    skills: identity.skills.slice(0, 5).map((skill) => skill.name),
+    recommendedActions: [
+      identity.projects.length
+        ? "Convert your top project into a case study block."
+        : "Add at least one flagship project to unlock storytelling blocks.",
+      "Refresh your dashboard hero copy with a strong CTA.",
+    ],
+  };
+};
+
+const fallbackDashboardLayout = (identity) => ({
+  layout: [
+    {
+      section: "hero",
+      content: identity.profile?.headline || "Identity spotlight",
+    },
+    {
+      section: "skills",
+      items: identity.skills.slice(0, 6).map((skill) => skill.name),
+    },
+    { section: "projects", count: identity.projects.length },
+    { section: "cta", text: "Book a call" },
+  ],
+  inspiration: "AI offline fallback",
+});
+
+const fallbackSuggestions = (identity) => ({
+  tags: identity.skills.slice(0, 5).map((skill) => skill.name.toLowerCase()),
+  priorities: [
+    "Capture a before/after win for your strongest project.",
+    "Publish your primary dashboard to unlock sharing links.",
+  ],
+});
+
+const runAgentWithFallback = async (task, data, fallbackBuilder, label) => {
+  try {
+    const output = await runAgent(task, data);
+    return { result: output, offline: false };
+  } catch (error) {
+    console.error(`[AgentAI] ${label} failed`, error.message);
+    return { result: toJsonString(fallbackBuilder(data)), offline: true };
+  }
+};
+
 export const getProfileInsights = async (req, res, next) => {
   try {
     const identityData = await getIdentityBundle(req.user.id);
-    const output = await runAgent(
+    const { result, offline } = await runAgentWithFallback(
       "Generate a concise profile summary, skill highlights, and improvement actions.",
-      identityData
+      identityData,
+      fallbackProfileInsights,
+      "profile-insights"
     );
-    return res.json({ insights: output });
+    return res.json({ insights: result, offline });
   } catch (error) {
     return next(error);
   }
@@ -34,11 +91,13 @@ export const generateDashboardLayout = async (req, res, next) => {
     const payload = await validateAgentPrompt(req.body);
     const identityData = await getIdentityBundle(req.user.id);
     const merged = { ...identityData, request: payload };
-    const output = await runAgent(
+    const { result, offline } = await runAgentWithFallback(
       "Design a dashboard layout with section ordering, component ideas, and CTA suggestions.",
-      merged
+      merged,
+      fallbackDashboardLayout,
+      "dashboard-layout"
     );
-    return res.json({ layout: output });
+    return res.json({ layout: result, offline });
   } catch (error) {
     return next(error);
   }
@@ -49,11 +108,13 @@ export const getAgentSuggestions = async (req, res, next) => {
     const payload = await validateAgentPrompt(req.body);
     const identityData = await getIdentityBundle(req.user.id);
     const merged = { ...identityData, prompt: payload };
-    const output = await runAgent(
+    const { result, offline } = await runAgentWithFallback(
       "Provide strategic identity suggestions, tags, and keywords.",
-      merged
+      merged,
+      fallbackSuggestions,
+      "agent-suggestions"
     );
-    return res.json({ suggestions: output });
+    return res.json({ suggestions: result, offline });
   } catch (error) {
     return next(error);
   }

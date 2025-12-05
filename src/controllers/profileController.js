@@ -4,27 +4,14 @@ import {
   validateHandleUpdate,
   validateTemplateUpdate,
 } from "../utils/validators.js";
-
-const ensureTemplateExists = async (template) => {
-  if (!template) return null;
-  const result = await pool.query(
-    "SELECT slug FROM templates WHERE slug = $1 AND is_active = TRUE",
-    [template]
-  );
-  if (!result.rowCount) {
-    const error = new Error("Template not found.");
-    error.status = 400;
-    throw error;
-  }
-  return result.rows[0];
-};
+import { ensureTemplateExists } from "../services/templateService.js";
 
 export const getProfile = async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.handle,
               p.headline, p.bio, p.location, p.avatar_url, p.banner_url,
-              p.template, COALESCE(p.social_links, '[]'::json) AS social_links
+              p.template, COALESCE(p.social_links, '[]'::jsonb) AS social_links
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        WHERE u.id = $1`,
