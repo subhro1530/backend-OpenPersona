@@ -6,8 +6,25 @@ import {
   validateLogin,
   validateAdminRegister,
   validateAdminUpgrade,
+  validateForgotPassword,
+  validateResetPassword,
+  validateChangePassword,
 } from "../utils/validators.js";
 import { getPlanDefinition } from "../config/plans.js";
+import {
+  createPasswordResetToken,
+  verifyPasswordResetToken,
+  markPasswordResetUsed,
+  createVerificationToken,
+  verifyEmailToken,
+  markEmailVerified,
+  revokeToken,
+  changeUserPassword,
+} from "../utils/authHelpers.js";
+import {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "../utils/email.js";
 
 const baseUserFields =
   "u.id, u.name, u.email, u.handle, u.plan, u.is_admin, u.is_blocked, u.created_at";
@@ -261,6 +278,155 @@ export const me = async (req, res, next) => {
     }
 
     return res.json({ user });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Forgot Password ---
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = await validateForgotPassword(req.body);
+    const result = await pool.query(
+      `SELECT id, email, name FROM users WHERE email = $1 LIMIT 1`,
+      [email.toLowerCase()]
+    );
+    // Always return success to prevent email enumeration
+    if (!result.rowCount) {
+      return res.json({
+        message: "If the email exists, a reset link has been sent.",
+      });
+    }
+    const user = result.rows[0];
+    const token = await createPasswordResetToken(user.id);
+    const baseUrl =
+      process.env.FRONTEND_URL ||
+      req.headers.origin ||
+      `${req.protocol}://${req.get("host")}`;
+    const resetLink = `${baseUrl}/reset-password?token=${token}`;
+    await sendPasswordResetEmail(user.email, user.name, resetLink);
+    return res.json({
+      message: "If the email exists, a reset link has been sent.",
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Reset Password ---
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token, newPassword } = await validateResetPassword(req.body);
+    const resetData = await verifyPasswordResetToken(token);
+    if (!resetData) {
+      res.status(400);
+      throw new Error("Invalid or expired reset token.");
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+      passwordHash,
+      resetData.user_id,
+    ]);
+    await markPasswordResetUsed(resetData.id);
+    return res.json({ message: "Password has been reset successfully." });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Change Password (Authenticated) ---
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = await validateChangePassword(
+      req.body
+    );
+    const result = await pool.query(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    if (!result.rowCount) {
+      res.status(404);
+      throw new Error("User not found.");
+    }
+    const match = await comparePassword(
+      currentPassword,
+      result.rows[0].password_hash
+    );
+    if (!match) {
+      res.status(401);
+      throw new Error("Current password is incorrect.");
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+      passwordHash,
+      req.user.id,
+    ]);
+    return res.json({ message: "Password changed successfully." });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Request Email Verification ---
+export const requestVerification = async (req, res, next) => {
+  try {
+    const user = await pool.query(
+      `SELECT id, email, name, email_verified FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    if (!user.rowCount) {
+      res.status(404);
+      throw new Error("User not found.");
+    }
+    if (user.rows[0].email_verified) {
+      return res.json({ message: "Email already verified." });
+    }
+    const token = await createVerificationToken(req.user.id);
+    const baseUrl =
+      process.env.FRONTEND_URL ||
+      req.headers.origin ||
+      `${req.protocol}://${req.get("host")}`;
+    const verifyLink = `${baseUrl}/verify-email?token=${token}`;
+    await sendVerificationEmail(
+      user.rows[0].email,
+      user.rows[0].name,
+      verifyLink
+    );
+    return res.json({ message: "Verification email sent." });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Verify Email ---
+export const verifyEmail = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      res.status(400);
+      throw new Error("Token is required.");
+    }
+    const user = await verifyEmailToken(token);
+    if (!user) {
+      res.status(400);
+      throw new Error("Invalid or expired verification token.");
+    }
+    await markEmailVerified(user.id);
+    return res.json({ message: "Email verified successfully." });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Logout (Token Blacklist) ---
+export const logout = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      // Token revocation requires jti - for now just acknowledge logout
+      // In production, extract jti from token and call revokeToken
+    }
+    return res.json({ message: "Logged out successfully." });
   } catch (error) {
     return next(error);
   }

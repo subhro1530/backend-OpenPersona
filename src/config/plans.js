@@ -28,6 +28,8 @@ export const PLAN_DEFINITIONS = {
 export const getPlanDefinition = (tier = "free") =>
   PLAN_DEFINITIONS[tier] || PLAN_DEFINITIONS.free;
 
+export const getAllPlans = () => Object.values(PLAN_DEFINITIONS);
+
 export const canCreateDashboard = (tier, existingCount, options = {}) => {
   if (options.isAdmin) {
     return true;

@@ -289,3 +289,119 @@ export const validateTemplateCatalogUpdate = (payload) =>
 
 export const validateSlug = async (value) =>
   slug.validateAsync(value, baseOptions);
+
+// ========== NEW ENDPOINT VALIDATORS ==========
+
+const forgotPasswordSchema = Joi.object({
+  email: email.required(),
+});
+
+const resetPasswordSchema = Joi.object({
+  token: Joi.string().min(20).max(256).required(),
+  newPassword: password.required(),
+});
+
+const changePasswordSchema = Joi.object({
+  currentPassword: password.required(),
+  newPassword: password.required(),
+});
+
+const userSettingsSchema = Joi.object({
+  theme: Joi.string().valid("light", "dark", "system").default("system"),
+  language: Joi.string().max(10).default("en"),
+  timezone: Joi.string().max(64).default("UTC"),
+});
+
+const notificationPrefsSchema = Joi.object({
+  email: Joi.boolean().default(true),
+  push: Joi.boolean().default(false),
+  marketing: Joi.boolean().default(false),
+});
+
+const privacyPrefsSchema = Joi.object({
+  profile_public: Joi.boolean().default(true),
+  show_email: Joi.boolean().default(false),
+  allow_indexing: Joi.boolean().default(true),
+});
+
+const linkSchema = Joi.object({
+  label: Joi.string().max(80).required(),
+  url: Joi.string().uri().required(),
+});
+
+const socialLinkSchema = Joi.object({
+  platform: Joi.string().max(40).required(),
+  url: Joi.string().uri().required(),
+});
+
+const testimonialSchema = Joi.object({
+  authorName: Joi.string().max(120).required(),
+  authorTitle: Joi.string().max(120).allow("", null),
+  authorCompany: Joi.string().max(120).allow("", null),
+  authorAvatarUrl: Joi.string().uri().allow("", null),
+  content: Joi.string().min(10).max(2000).required(),
+  rating: Joi.number().integer().min(1).max(5).allow(null),
+  isPublic: Joi.boolean().default(true),
+});
+
+const testimonialRequestSchema = Joi.object({
+  recipientEmail: email.required(),
+  recipientName: Joi.string().max(120).allow("", null),
+  message: Joi.string().max(1000).allow("", null),
+});
+
+const reorderSchema = Joi.object({
+  ids: Joi.array().items(Joi.string().uuid()).min(1).required(),
+});
+
+const announcementSchema = Joi.object({
+  title: Joi.string().max(160).required(),
+  body: Joi.string().max(4000).required(),
+  target: Joi.string().valid("all", "free", "growth", "scale").default("all"),
+});
+
+const importPortfolioSchema = Joi.object({
+  profile: profileSchema.optional(),
+  experiences: Joi.array().items(experienceEntry).default([]),
+  education: Joi.array().items(educationEntry).default([]),
+  projects: Joi.array().items(projectEntry).default([]),
+  skills: Joi.array().items(skillEntry).default([]),
+  certifications: Joi.array().items(certificationEntry).default([]),
+});
+
+export const validateForgotPassword = (payload) =>
+  forgotPasswordSchema.validateAsync(payload, baseOptions);
+export const validateResetPassword = (payload) =>
+  resetPasswordSchema.validateAsync(payload, baseOptions);
+export const validateChangePassword = (payload) =>
+  changePasswordSchema.validateAsync(payload, baseOptions);
+export const validateSettings = (payload) =>
+  userSettingsSchema.validateAsync(payload, baseOptions);
+export const validateNotificationPrefs = (payload) =>
+  notificationPrefsSchema.validateAsync(payload, baseOptions);
+export const validatePrivacyPrefs = (payload) =>
+  privacyPrefsSchema.validateAsync(payload, baseOptions);
+export const validateLink = (payload) =>
+  linkSchema.validateAsync(payload, baseOptions);
+export const validateSocialLink = (payload) =>
+  socialLinkSchema.validateAsync(payload, baseOptions);
+export const validateTestimonial = (payload) =>
+  testimonialSchema.validateAsync(payload, baseOptions);
+export const validateTestimonialRequest = (payload) =>
+  testimonialRequestSchema.validateAsync(payload, baseOptions);
+export const validateReorder = (payload) =>
+  reorderSchema.validateAsync(payload, baseOptions);
+export const validateAnnouncement = (payload) =>
+  announcementSchema.validateAsync(payload, baseOptions);
+export const validateImportPortfolio = (payload) =>
+  importPortfolioSchema.validateAsync(payload, baseOptions);
+export const validateExperienceFull = (payload) =>
+  experienceEntry.validateAsync(payload, baseOptions);
+export const validateEducationFull = (payload) =>
+  educationEntry.validateAsync(payload, baseOptions);
+export const validateProjectFull = (payload) =>
+  projectEntry.validateAsync(payload, baseOptions);
+export const validateSkill = (payload) =>
+  skillEntry.validateAsync(payload, baseOptions);
+export const validateCertificationFull = (payload) =>
+  certificationEntry.validateAsync(payload, baseOptions);
